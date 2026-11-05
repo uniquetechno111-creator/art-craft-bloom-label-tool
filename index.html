@@ -55,19 +55,58 @@ footer { text-align:center; color:var(--muted); font-size:12px; margin-top:18px;
   <div class="note"><b>Important:</b> Upload the original Meesho PDF, not a PDF that already has this QR banner. The banner is added to every page. The QR is dynamic and records scans in your private Google Sheet before opening your Meesho store. Check the first output before printing.</div>
   <footer>Free setup with Google Sheets + Apps Script. PDF processing stays in this browser. Internet is needed for the libraries and tracking redirect.</footer>
 </main>
-<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 <script>
 const fileInput=document.getElementById('pdfFile'), button=document.getElementById('make'), status=document.getElementById('status');
 const bannerData=document.querySelector('.preview').src;
-fileInput.addEventListener('change',()=>{button.disabled=!(fileInput.files&&fileInput.files[0]);status.textContent=fileInput.files.length?fileInput.files[0].name+' selected.':'';});
+let librariesReady=false;
+
+// Try more than one CDN so a temporary CDN/network failure does not stop the tool.
+function loadLibrary(urls, globalName) {
+  return new Promise((resolve, reject) => {
+    if (window[globalName]) return resolve();
+    let index = 0;
+    const tryNext = () => {
+      if (window[globalName]) return resolve();
+      if (index >= urls.length) return reject(new Error(globalName + ' could not load from the available CDNs.'));
+      const script = document.createElement('script');
+      script.src = urls[index++];
+      script.async = true;
+      script.onload = () => window[globalName] ? resolve() : tryNext();
+      script.onerror = () => { script.remove(); tryNext(); };
+      document.head.appendChild(script);
+    };
+    tryNext();
+  });
+}
+
+async function initialiseLibraries() {
+  status.textContent = 'Loading PDF and QR libraries…';
+  try {
+    await loadLibrary([
+      'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',
+      'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js'
+    ], 'PDFLib');
+    await loadLibrary([
+      'https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js',
+      'https://unpkg.com/qrcode@1.5.4/build/qrcode.min.js'
+    ], 'QRCode');
+    librariesReady = true;
+    status.textContent = 'Ready. Upload your original Meesho PDF.';
+    button.disabled = !(fileInput.files && fileInput.files[0]);
+  } catch (error) {
+    status.textContent = 'Could not load required libraries. Check your connection or disable content blockers, then refresh. Details: ' + error.message;
+  }
+}
+
+fileInput.addEventListener('change',()=>{button.disabled=!(librariesReady && fileInput.files&&fileInput.files[0]);status.textContent=fileInput.files.length?fileInput.files[0].name+' selected.':'';});
 button.addEventListener('click',async()=>{
  const file=fileInput.files[0], tracker=document.getElementById('trackerUrl').value.trim(), campaign=(document.getElementById('campaign').value.trim()||'meesho-label');
  if(!file)return;
  if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(tracker)){status.textContent='Paste your deployed Google Apps Script URL ending in /exec.';return;}
  button.disabled=true;status.textContent='Creating tracked QR and PDF… keep this tab open.';
  try{
-  if(!window.PDFLib||!window.QRCode)throw new Error('A library did not load. Check internet and refresh.');
+  if(!librariesReady||!window.PDFLib||!window.QRCode)throw new Error('The PDF/QR libraries are not ready. Refresh the page and check your connection.');
   const target=tracker+'?c='+encodeURIComponent(campaign);
   const qrCanvas=document.createElement('canvas');
   await QRCode.toCanvas(qrCanvas,target,{width:420,margin:1,errorCorrectionLevel:'M',color:{dark:'#000000',light:'#ffffff'}});
@@ -87,6 +126,8 @@ button.addEventListener('click',async()=>{
   status.textContent='Done! Tracked QR PDF downloaded. Test-scan the QR before printing.';
  }catch(e){status.textContent='Error: '+e.message;}finally{button.disabled=false;}
 });
+
+initialiseLibraries();
 </script>
 </body>
 </html>
